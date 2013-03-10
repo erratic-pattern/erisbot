@@ -28,31 +28,19 @@ library
                   , transformers
                   , lens
                   , mtl
+                  , containers
                   , unordered-containers
                   , xml-conduit
                   , html-conduit
+                  , http-conduit
+                  , lifted-base                            
                   , text
+                  , process
 
 
   exposed-modules: Erisbot
+                   Erisbot.Commands
+                   Erisbot.Plugins
+                   Erisbot.Plugins.URL
+                   Erisbot.Plugins.Sed
                    Erisbot.Types
-
-executable erisbot
-  hs-source-dirs: src
-  ghc-options: -Wall -threaded
-  main-is: Main.hs
-  build-depends:    base == 4.*
-                  , attoparsec
-                  , bytestring
-                  , irc-bytestring
-                  , network
-                  , monad-control
-                  , lens >= 3.8
-                  , mtl
-                  , unordered-containers
-                  , http-conduit
-                  , web-encodings
-                  , lifted-base
-
-
-

@@ -1,10 +1,10 @@
-{-# LANGUAGE OverloadedStrings, FlexibleContexts, NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings, FlexibleContexts, NamedFieldPuns
+           , RecordWildCards #-}
 module Erisbot where
-import Erisbot.Config
 import Erisbot.Types
 import Erisbot.Commands
-import Erisbot.Plugins.Url
-
+import Erisbot.Plugins.URL
+import Erisbot.Plugins.Sed
 import Network
 import Network.IRC.ByteString.Parser
 import Data.ByteString (ByteString)
@@ -16,9 +16,6 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Lens
 import System.IO
-
-cmdPrefixes :: [Char]
-cmdPrefixes = "!"
 
 --waitForNoIdent :: Handle -> IO ()
 --waitForNoIdent sock = do
@@ -70,29 +67,33 @@ socketWriter sock = do
     debugMsg "output sent"
 
 -- |Listens for PING messages and replies with a suitable PONG
-pingListener :: IRCMsg -> Bot ()
+pingListener :: InputListener
 pingListener IRCMsg {msgCmd = "PING", msgParams, msgTrail} 
   = sendMsg "PONG" msgParams msgTrail 
 pingListener _ = return ()
     
-main :: IO ()
-main = withSocketsDo $ do
+erisbot :: BotConf -> IO ()
+erisbot conf@BotConf {..} = withSocketsDo $ do
   sock <- connectTo network (PortNumber port)
   putStrLn $ "Connecting to " ++ network ++ ":" ++ show port ++ "..."
   hSetBuffering sock LineBuffering
-  botState <- emptyBotState
+  botState <- newBotState conf
   runBot botState $ do
+    debugMsg "Initializing socket reader"
     forkBot_ (socketReader sock)
+    debugMsg "Initializing socket writer"
     forkBot_ (socketWriter sock)
+    debugMsg "Initializing command dispatcher"
     forkInputListener_ commandDispatcher
     forkInputListener_ pingListener
     forkInputListener_ urlListener
+    forkBot_ sed
     addCommand "say" sayCommand
-    sendMsg "NICK" [nick] ""
-    sendMsg "USER" [user, "*", "*"] realname
+    sendMsg "NICK" [BS.pack nick] ""
+    sendMsg "USER" [BS.pack user, "*", "*"] (BS.pack realname)
     waitFor001 $ do
       forM_ channels $ \c ->
-        sendMsg "JOIN" [c] ""
+        sendMsg "JOIN" [BS.pack c] ""
     debugMsg "main sleeping"
     sleepForever
   

@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings, ViewPatterns #-}
 module Erisbot.Commands where
-import Erisbot.Config
 import Erisbot.Types
 import Network.IRC.ByteString.Parser
 import Data.ByteString (ByteString)
@@ -17,14 +16,16 @@ import Erisbot.Types
 
 -- |Listens for bot commands and dispatches them to registered command handlers
 commandDispatcher :: IRCMsg -> Bot ()
-commandDispatcher msg =
+commandDispatcher msg = do
   case msg of
     IRCMsg {msgPrefix = Just (Left userInfo)
            ,msgCmd = "PRIVMSG"
            ,msgParams = [channel]
            ,msgTrail = (BS.uncons -> Just (firstChar, cmdMsg))
            }
-      | firstChar `elem` cmdPrefixes -> do
+      -> do
+      isPrefix <- isCmdPrefix firstChar
+      when isPrefix $ do 
         cmds <- liftIO . readMVar =<< use cmdHandlers
         case HashMap.lookup cmdName cmds of
           Just cmdHandler -> do
@@ -48,6 +49,5 @@ addCommand cName cHandler = do
 
 sayCommand :: CommandHandler ()
 sayCommand = do
-  c <- view cmdChannel
   msg <- view cmdParams
-  withChannel c $ say msg
+  replyToChannel (say msg)
