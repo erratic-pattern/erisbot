@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts, TemplateHaskell, OverloadedStrings, 
-             ConstraintKinds, ScopedTypeVariables, ImpredicativeTypes #-}
+             ConstraintKinds, ScopedTypeVariables, ImpredicativeTypes,
+             ExistentialQuantification #-}
 module Erisbot.Types where
 
 import Network.IRC.ByteString.Parser
@@ -41,6 +42,7 @@ data BotConf =
           , plugins :: [(PluginName, FilePath)]
           }
 
+defaultBotConf :: BotConf
 defaultBotConf = BotConf { network = confErr "network address"
                          , port = confErr "port number"
                          , nick = confErr "nick name"
@@ -68,20 +70,21 @@ data BotState s =
            , _outQueue :: Chan IRCMsg
            , _inQueue  :: Chan IRCMsg
            , _chanLocks :: MVar (HashMap ByteString (MVar ThreadId))
-           , _cmdHandlers :: MVar (HashMap ByteString 
-                                   (forall s'. CommandHandler s' ()))
-           , _pluginMap :: MVar (HashMap PluginName (PluginState))
+           , _cmdHandlers :: MVar (HashMap ByteString CommandState)
+           , _pluginMap :: MVar (HashMap PluginName PluginState)
            , _currentChanLock :: Maybe (MVar ThreadId)
            , _currentPlugin :: Maybe Plugin
            , _debugMode :: Bool
            , _debugLock :: MVar ThreadId
            , _localState :: s
            }
+  
 
-data Plugin = Plugin { onLoad :: Bot () ()
-                     , onUnload :: Bot () ()
+data Plugin = Plugin { onLoad :: forall a. Bot a ()
+                     , onUnload :: forall a. Bot a ()
                      }
                
+defaultPlugin :: Plugin
 defaultPlugin = Plugin (return ()) (return ())
 
 data PluginState =
@@ -92,8 +95,8 @@ data PluginState =
 
 
 -- |convenient typeclass synonym
-type BotMonad s bot = ( MonadIO (bot s), MonadState (BotState s) (bot s)
-                      , Functor (bot s), MonadBaseControl IO (bot s))
+type BotMonad s bot = ( MonadIO bot, MonadState (BotState s) bot
+                      , Functor bot, MonadBaseControl IO bot)
 
 -- |base bot monad
 type Bot s = StateT (BotState s) IO
@@ -104,8 +107,12 @@ type ChannelWriterT = ReaderT ByteString
 
 type InputListener s = IRCMsg -> Bot s ()
 
--- |monad trasnformer for command handlers
 type CommandHandler s = ReaderT CommandData (Bot s)
+
+data CommandState = forall s.
+  CommandState { cmdState  :: s
+               , cmdAction :: CommandHandler s ()
+               }
 
 makeLenses ''CommandData
 makeLenses ''BotState
@@ -123,7 +130,7 @@ newBotState conf s = liftIO $ do
   return $ BotState confVar outQ inQ chanL cmdH plugs Nothing Nothing 
                     False debugL s
 
-copyBotState :: BotMonad s bot => s' -> bot s (BotState s')
+copyBotState :: BotMonad s bot => s' -> bot (BotState s')
 copyBotState s' = do
   confVar <- use botConf
   inQ' <- dupChan =<< use inQueue 
@@ -141,7 +148,7 @@ runBot :: BotState s -> Bot s a -> IO a
 runBot = flip evalStateT
   
 forkBot :: BotMonad s bot => 
-           s' -> Bot s' () -> bot s ThreadId
+           s' -> Bot s' () -> bot ThreadId
 forkBot s' botAct = do
   botState' <- copyBotState s'
   --forkFinally (set botState' >> bot) finalizer
@@ -151,13 +158,13 @@ forkBot s' botAct = do
       maybe (return ()) (void . liftIO . tryTakeMVar) =<< use currentChanLock
       
   
-forkBot_ :: BotMonad s bot => s' -> Bot s' () -> bot s ()
+forkBot_ :: BotMonad s bot => s' -> Bot s' () -> bot ()
 forkBot_ s' = void . forkBot s'
   
 
 runInputListener :: InputListener s -> Bot s a
 runInputListener listener = 
-  forever {-. handle exHandler -} $ listener =<< recvMsg
+  forever . handle exHandler $ listener =<< recvMsg
   where
     exHandler (e :: SomeException) = debugMsg (show e)
 
@@ -167,12 +174,14 @@ forkInputListener s' = forkBot s' . runInputListener
 forkInputListener_ :: s' -> InputListener s' -> Bot s ()
 forkInputListener_ s' = void . forkInputListener s'
 
-runCommandHandler :: CommandData -> CommandHandler s a -> Bot s a
-runCommandHandler = flip runReaderT
+runCommandHandler :: CommandData -> s' -> CommandHandler s' a -> Bot s a
+runCommandHandler cmdData s' handler = do 
+  botState' <- copyBotState s'
+  liftIO . runBot botState' . runReaderT handler $ cmdData
 
 
 sendMsg :: BotMonad s bot => 
-           ByteString -> [ByteString] -> ByteString -> bot s ()
+           ByteString -> [ByteString] -> ByteString -> bot ()
 sendMsg cmd params trail = do
   outQ <- use outQueue
   let msg = ircMsg cmd params trail
@@ -180,21 +189,21 @@ sendMsg cmd params trail = do
     <> fromString (show msg)
   liftIO . writeChan outQ $ ircMsg cmd params trail
 
-recvMsg :: BotMonad s bot => bot s IRCMsg
+recvMsg :: BotMonad s bot => bot IRCMsg
 recvMsg = liftIO . readChan =<< use inQueue
 
-say :: BotMonad s bot => ByteString -> ChannelWriterT (bot s) ()
+say :: BotMonad s bot => ByteString -> ChannelWriterT bot ()
 say chanMsg = do 
   channel <- ask
   sendMsg "PRIVMSG" [channel] chanMsg
 
-emote :: BotMonad s bot => ByteString -> ChannelWriterT (bot s) ()
+emote :: BotMonad s bot => ByteString -> ChannelWriterT bot ()
 emote chanMsg = do
   channel <- ask
   sendMsg "PRIVMSG" [channel] $ "\x01\&ACTION " <> chanMsg <> "\x01"
 
 
-lockChannel :: BotMonad s bot => ByteString -> bot s ()
+lockChannel :: BotMonad s bot => ByteString -> bot ()
 lockChannel channel = do
   isLocking <- isJust <$> use currentChanLock
   when isLocking $ error "Thread is already locking a channel"
@@ -214,7 +223,7 @@ lockChannel channel = do
   liftIO $ putMVar chanLock =<< myThreadId
   currentChanLock .= Just chanLock
 
-unlockChannel :: BotMonad s bot => bot s ()
+unlockChannel :: BotMonad s bot => bot ()
 unlockChannel = do 
   mLock <- use currentChanLock
   case mLock of
@@ -225,7 +234,7 @@ unlockChannel = do
       return ()
 
 withChannel :: BotMonad s bot => 
-               ByteString -> ChannelWriterT (bot s) a -> bot s a
+               ByteString -> ChannelWriterT bot a -> bot a
 withChannel channel cWriter = do
   lockChannel channel
   result <- runReaderT cWriter channel `finally` unlockChannel
@@ -238,21 +247,19 @@ replyToChannel writer = do
   withChannel channel writer
 
 
-debugMsg :: BotMonad s bot => String -> bot s ()
+debugMsg :: BotMonad s bot => String -> bot ()
 debugMsg msg = do
   isDebugMode <- use debugMode
   when isDebugMode $ do
     lock <- use debugLock
     liftIO $ do
+      let finalizer _ = void $ takeMVar lock
       threadId <- myThreadId
-      let outputThread = do
-            putMVar lock threadId
-            System.IO.hPutStrLn stderr $ show threadId <> ": " <> msg
-          finalizer _ = void . liftIO $ takeMVar lock
-      --forkFinally outputThread finalizer
-      void $ fork ( outputThread >> finalizer undefined)
+      putMVar lock threadId
+      System.IO.hPutStrLn stderr $ show threadId <> ": " <> msg
+      finalizer undefined
   
-debugMsgByteString :: BotMonad s bot => ByteString -> bot s ()
+debugMsgByteString :: BotMonad s bot => ByteString -> bot ()
 debugMsgByteString = debugMsg . BS.unpack
 
 isCmdPrefix :: Char -> Bot s Bool

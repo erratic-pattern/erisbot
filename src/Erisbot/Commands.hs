@@ -15,7 +15,7 @@ import Erisbot.Types
 
 
 -- |Listens for bot commands and dispatches them to registered command handlers
-commandDispatcher :: IRCMsg -> Bot ()
+commandDispatcher :: IRCMsg -> Bot s ()
 commandDispatcher msg = do
   case msg of
     IRCMsg {msgPrefix = Just (Left userInfo)
@@ -28,8 +28,8 @@ commandDispatcher msg = do
       when isPrefix $ do 
         cmds <- liftIO . readMVar =<< use cmdHandlers
         case HashMap.lookup cmdName cmds of
-          Just cmdHandler -> do
-            forkBot_ . runCommandHandler cmdData $ cmdHandler
+          Just (CommandState cmdState cmdHandler) ->
+            forkBot_ () . runCommandHandler cmdData cmdState $ cmdHandler
           Nothing -> do
             withChannel channel . say $ "Invalid command: " <> cmdName
 
@@ -41,13 +41,14 @@ commandDispatcher msg = do
     _ -> return ()
     
 -- |Adds a command handler to the bot, overwriting any previous handler with the same name.
-addCommand :: ByteString -> CommandHandler () -> Bot ()
-addCommand cName cHandler = do
+addCommand :: ByteString -> s -> CommandHandler s () -> Bot s' ()
+addCommand cName cState cHandler = do
   cHandlersVar <- use cmdHandlers
-  liftIO $ modifyMVar_ cHandlersVar (return . HashMap.insert cName cHandler)
+  liftIO $ modifyMVar_ cHandlersVar 
+    (return . HashMap.insert cName (CommandState cState cHandler))
 
 
-sayCommand :: CommandHandler ()
+sayCommand :: CommandHandler s ()
 sayCommand = do
   msg <- view cmdParams
   replyToChannel (say msg)

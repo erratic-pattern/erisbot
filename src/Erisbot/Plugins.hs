@@ -10,7 +10,7 @@ import System.Mem.Weak
 import System.FilePath
 
 
-getPlugin :: FilePath -> Bot (LoadStatus Plugin)
+getPlugin :: FilePath -> Bot s (LoadStatus Plugin)
 getPlugin path = do
   conf <- readMVar =<< use botConf
   let pluginD = pluginDir conf 
@@ -21,7 +21,7 @@ getPlugin path = do
   
   liftIO $ load_ path' [] "plugin"
 
-loadPlugin :: String -> FilePath -> Bot (LoadStatus Plugin)
+loadPlugin :: String -> FilePath -> Bot s (LoadStatus Plugin)
 loadPlugin pluginName filePath = do
   debugMsg $ "Loading " ++ pluginName
   loadResult <- getPlugin filePath
@@ -39,14 +39,14 @@ loadPlugin pluginName filePath = do
         return $ HashMap.insert pluginName pluginState plugMap
       prevPlugin <- use currentPlugin
       currentPlugin .= Just plugin
-      forkBot_ (onLoad plugin)
+      forkBot_ () (onLoad plugin)
       currentPlugin .= prevPlugin
     
   return loadResult
   
 
 unloadPlugin_ :: String -> HashMap PluginName PluginState
-                 -> Bot (HashMap PluginName PluginState)
+                 -> Bot s (HashMap PluginName PluginState)
 unloadPlugin_ pluginName pluginMap = do
   case HashMap.lookup pluginName pluginMap of
     Just pluginState -> do
@@ -57,8 +57,7 @@ unloadPlugin_ pluginName pluginMap = do
     Nothing -> return pluginMap
       
       
-unloadPlugin :: String -> Bot ()
+unloadPlugin :: String -> Bot s ()
 unloadPlugin pluginName = do
   plugsVar <- use pluginMap
   modifyMVar_ plugsVar (unloadPlugin_ pluginName)
-

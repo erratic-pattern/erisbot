@@ -27,7 +27,7 @@ import System.IO
 --    else waitForNoIdent sock  
 
 -- |Waits for 001 numeric before performing the given action
-waitFor001 :: Bot () -> Bot ()
+waitFor001 :: Bot s () -> Bot s ()
 waitFor001 action = do
   msg <- recvMsg
   case msg of
@@ -35,7 +35,7 @@ waitFor001 action = do
     _ -> waitFor001 action
 
 -- |Indefinitely read input from the given 'Handle', parse each line as an IRC message, and send the IRC message to the bot input queue
-socketReader :: Handle -> Bot a
+socketReader :: Handle -> Bot s a
 socketReader sock = do
   inQ <- use inQueue
   debugMsg "starting socketReader"
@@ -55,7 +55,7 @@ socketReader sock = do
         liftIO (writeChan inQ msg)
   
 -- |Indefinitely read IRC messages from the bot output queue, serialize them, and write them to the given handle
-socketWriter :: Handle -> Bot a
+socketWriter :: Handle -> Bot s a
 socketWriter sock = do
   outQ <- use outQueue
   debugMsg "starting socketWriter"
@@ -68,7 +68,7 @@ socketWriter sock = do
     debugMsg "output sent"
 
 -- |Listens for PING messages and replies with a suitable PONG
-pingListener :: InputListener
+pingListener :: InputListener s
 pingListener IRCMsg {msgCmd = "PING", msgParams, msgTrail} 
   = sendMsg "PONG" msgParams msgTrail 
 pingListener _ = return ()
@@ -78,18 +78,19 @@ erisbot conf@BotConf {..} = withSocketsDo $ do
   sock <- connectTo network (PortNumber port)
   putStrLn $ "Connecting to " ++ network ++ ":" ++ show port ++ "..."
   hSetBuffering sock LineBuffering
-  botState <- newBotState conf
+  botState <- newBotState conf ()
   runBot botState $ do
+    debugMode .= True
     debugMsg "Initializing socket reader"
-    forkBot_ (socketReader sock)
+    forkBot_ () (socketReader sock)
     debugMsg "Initializing socket writer"
-    forkBot_ (socketWriter sock)
+    forkBot_ () (socketWriter sock)
     debugMsg "Initializing command dispatcher"
-    forkInputListener_ commandDispatcher
-    forkInputListener_ pingListener
-    forkInputListener_ urlListener
-    forkBot_ sed
-    addCommand "say" sayCommand
+    forkInputListener_ () commandDispatcher
+    forkInputListener_ () pingListener
+    forkInputListener_ () urlListener
+    forkBot_ () sed
+    addCommand "say" () sayCommand
     sendMsg "NICK" [BS.pack nick] ""
     sendMsg "USER" [BS.pack user, "*", "*"] (BS.pack realname)
     waitFor001 $ do

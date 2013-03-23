@@ -86,7 +86,7 @@ breakSubstring pat src = search 0 src
 isRedundant :: ByteString -> ByteString -> Bool
 isRedundant _ _ = False
 
-urlListener :: InputListener
+urlListener :: InputListener s
 urlListener IRCMsg {msgCmd = "PRIVMSG", msgParams = [channel], msgTrail = msg} = do
   debugMsg "URL listener active"
   let urls = scanForURLs msg
@@ -122,5 +122,5 @@ urlListener _ = return ()
   
 plugin = 
   defaultPlugin {
-    onLoad = forkInputListener_ urlListener
+    onLoad = forkInputListener_ () urlListener
   }
