@@ -3,6 +3,7 @@
 module Erisbot where
 import Erisbot.Types
 import Erisbot.Commands
+import Erisbot.Plugins
 import Erisbot.Plugins.URL
 import Erisbot.Plugins.Sed
 import Network
@@ -92,6 +93,7 @@ erisbot conf@BotConf {..} = withSocketsDo $ do
     sendMsg "NICK" [BS.pack nick] ""
     sendMsg "USER" [BS.pack user, "*", "*"] (BS.pack realname)
     waitFor001 $ do
+      forM_ plugins (uncurry loadPlugin)
       forM_ channels $ \c ->
         sendMsg "JOIN" [BS.pack c] ""
     debugMsg "main sleeping"

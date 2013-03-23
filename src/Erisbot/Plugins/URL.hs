@@ -120,3 +120,7 @@ urlListener IRCMsg {msgCmd = "PRIVMSG", msgParams = [channel], msgTrail = msg} =
 
 urlListener _ = return ()
   
+plugin = 
+  defaultPlugin {
+    onLoad = forkInputListener_ urlListener
+  }

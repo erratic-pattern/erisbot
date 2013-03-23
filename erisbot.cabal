@@ -36,6 +36,8 @@ library
                   , lifted-base                            
                   , text
                   , process
+                  , filepath
+                  , plugins
 
 
   exposed-modules: Erisbot
