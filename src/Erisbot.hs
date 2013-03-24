@@ -9,6 +9,7 @@ import Erisbot.Plugins.Sed
 import Network
 import Network.IRC.ByteString.Parser
 import Data.ByteString (ByteString)
+import qualified Data.HashMap.Strict as HM
 import qualified Data.ByteString.Char8 as BS
 import Data.Attoparsec
 import Data.Monoid
@@ -89,7 +90,7 @@ erisbot conf@BotConf {..} = withSocketsDo $ do
     forkInputListener_ () commandDispatcher
     forkInputListener_ () pingListener
     forkInputListener_ () urlListener
-    forkBot_ () sed
+    forkInputListener_ HM.empty sedListener
     addCommand "say" () sayCommand
     sendMsg "NICK" [BS.pack nick] ""
     sendMsg "USER" [BS.pack user, "*", "*"] (BS.pack realname)
