@@ -198,10 +198,8 @@ forkInputListenerWithState s' = forkBotWithState s' . runInputListener
 forkInputListenerWithState_ :: s' -> InputListener s' -> Bot s ()
 forkInputListenerWithState_ s' = void . forkInputListenerWithState s'
 
-runCommandHandler :: CommandData -> s' -> CommandHandler s' a -> Bot s a
-runCommandHandler cmdData s' handler = do 
-  botState' <- copyBotState s'
-  liftIO . runBot botState' . runReaderT handler $ cmdData
+runCommandHandler :: CommandData -> CommandHandler s a -> Bot s a
+runCommandHandler  = flip runReaderT
 
 
 withLocalState :: s' -> Bot s' a -> Bot s a

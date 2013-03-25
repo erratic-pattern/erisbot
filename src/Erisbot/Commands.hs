@@ -31,11 +31,12 @@ commandDispatcher msg = do
         cmds <- liftIO . readMVar $ cmdHandlersVar
         case HM.lookup cmdName cmds of
           Just (CommandState s cmdHandler mCmdLock) ->
-            forkBotWithState_ s . runCommandHandler cmdData s $ do
+            forkBotWithState_ s . runCommandHandler cmdData $ do
               threadId <- myThreadId
               let (lockCmd, unlockCmd) =
                     case mCmdLock of
-                      Just cmdLock -> (putMVar cmdLock threadId, void (tryTakeMVar cmdLock))
+                      Just cmdLock -> (putMVar cmdLock threadId, 
+                                       void (tryTakeMVar cmdLock))
                       Nothing -> (return (), return ())
               bracket_ lockCmd unlockCmd $ do
                 cmdHandler
