@@ -82,18 +82,20 @@ erisbot conf@BotConf {..} = withSocketsDo $ do
   botState <- newBotState conf ()
   runBot botState $ do
     debugMode .= True
-    debugMsg "Initializing socket reader"
-    forkBot_ () (socketReader sock)
-    debugMsg "Initializing socket writer"
-    forkBot_ () (socketWriter sock)
-    debugMsg "Initializing command dispatcher"
-    forkInputListener_ () commandDispatcher
-    forkInputListener_ () pingListener
-    forkInputListener_ () urlListener
-    forkInputListener_ HM.empty sedListener
-    addCommand "say" () sayCommand
+    debugMsg "initializing socket reader"
+    forkBot_ (socketReader sock)
+    debugMsg "initializing socket writer"
+    forkBot_ (socketWriter sock)
+    debugMsg "initializing command dispatcher"
+    forkInputListener_ commandDispatcher
+    forkInputListener_ pingListener
+    forkInputListener_ urlListener
+    forkInputListenerWithState_ HM.empty sedListener
+    addCommand defaultCommand { name =  "say"
+                              , handler = sayCommand
+                              }
     sendMsg "NICK" [BS.pack nick] ""
-    sendMsg "USER" [BS.pack user, "*", "*"] (BS.pack realname)
+    sendMsg "USER" [BS.pack user, "0", "0"] (BS.pack realname)
     waitFor001 $ do
       forM_ plugins (uncurry loadPlugin)
       forM_ channels $ \c ->

@@ -1,17 +1,18 @@
-{-# LANGUAGE OverloadedStrings, ViewPatterns #-}
+{-# LANGUAGE OverloadedStrings, ViewPatterns, RecordWildCards #-}
 module Erisbot.Commands where
 import Erisbot.Types
 import Network.IRC.ByteString.Parser
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
-import Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict as HM
 import Data.Char
 import Data.Monoid
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Applicative
 import Control.Lens
-import Control.Concurrent
-import Erisbot.Types
+import Control.Concurrent.Lifted
+import Control.Exception.Lifted
 
 
 -- |Listens for bot commands and dispatches them to registered command handlers
@@ -26,10 +27,22 @@ commandDispatcher msg = do
       -> do
       isPrefix <- isCmdPrefix firstChar
       when isPrefix $ do 
-        cmds <- liftIO . readMVar =<< use cmdHandlers
-        case HashMap.lookup cmdName cmds of
-          Just (CommandState cmdState cmdHandler) ->
-            forkBot_ () . runCommandHandler cmdData cmdState $ cmdHandler
+        cmdHandlersVar <- use cmdHandlers
+        cmds <- liftIO . readMVar $ cmdHandlersVar
+        case HM.lookup cmdName cmds of
+          Just (CommandState s cmdHandler mCmdLock) ->
+            forkBotWithState_ s . runCommandHandler cmdData s $ do
+              threadId <- myThreadId
+              let (lockCmd, unlockCmd) =
+                    case mCmdLock of
+                      Just cmdLock -> (putMVar cmdLock threadId, void (tryTakeMVar cmdLock))
+                      Nothing -> (return (), return ())
+              bracket_ lockCmd unlockCmd $ do
+                cmdHandler
+                s' <- use localState
+                modifyMVar_ cmdHandlersVar 
+                  (return 
+                   . HM.insert cmdName (CommandState s' cmdHandler mCmdLock))
           Nothing -> do
             withChannel channel . say $ "Invalid command: " <> cmdName
 
@@ -41,11 +54,14 @@ commandDispatcher msg = do
     _ -> return ()
     
 -- |Adds a command handler to the bot, overwriting any previous handler with the same name.
-addCommand :: ByteString -> s -> CommandHandler s () -> Bot s' ()
-addCommand cName cState cHandler = do
+addCommand :: Command s -> Bot s' ()
+addCommand Command{..} = do
   cHandlersVar <- use cmdHandlers
+  lock <- if allowConcurrent 
+          then return Nothing
+          else Just <$> liftIO newEmptyMVar
   liftIO $ modifyMVar_ cHandlersVar 
-    (return . HashMap.insert cName (CommandState cState cHandler))
+    (return . HM.insert name (CommandState state handler lock))
 
 
 sayCommand :: CommandHandler s ()

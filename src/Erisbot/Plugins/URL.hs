@@ -122,5 +122,5 @@ urlListener _ = return ()
   
 plugin = 
   defaultPlugin {
-    onLoad = forkInputListener_ () urlListener
+    onLoad = forkInputListener_ urlListener
   }

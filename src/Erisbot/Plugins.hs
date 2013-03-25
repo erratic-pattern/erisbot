@@ -39,7 +39,7 @@ loadPlugin pluginName filePath = do
         return $ HashMap.insert pluginName pluginState plugMap
       prevPlugin <- use currentPlugin
       currentPlugin .= Just plugin
-      forkBot_ () (onLoad plugin)
+      forkBot_ (onLoad plugin)
       currentPlugin .= prevPlugin
     
   return loadResult
@@ -52,7 +52,7 @@ unloadPlugin_ pluginName pluginMap = do
     Just pluginState -> do
       liftIO $ forM_ (pluginThreads pluginState) 
                      (maybe (return ()) killThread <=< deRefWeak)
-      onUnload . pluginData $ pluginState
+      withLocalState () . onUnload . pluginData $ pluginState
       return $ HashMap.delete pluginName pluginMap
     Nothing -> return pluginMap
       
