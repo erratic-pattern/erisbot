@@ -265,9 +265,10 @@ unlockChannel = do
 withChannel :: BotMonad s bot => 
                ByteString -> ChannelWriterT bot a -> bot a
 withChannel channel cWriter = do
-  lockChannel channel
-  result <- runReaderT cWriter channel `finally` unlockChannel
-  currentChanLock .= Nothing -- needed because finally discards state changes
+  result <- bracket_ (lockChannel channel) (unlockChannel) $
+            runReaderT cWriter channel
+  currentChanLock .= Nothing -- needed because lifted bracket_ discards 
+                             -- state changes in the finalizer
   return result
 
 replyToChannel :: ChannelWriterT (CommandHandler s) a -> CommandHandler s a
