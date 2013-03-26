@@ -238,7 +238,7 @@ lockChannel channel = do
   when isLocking $ error "Thread is already locking a channel"
     
   lockMapVar <- use chanLocks
-  lockMap <- liftIO $ takeMVar lockMapVar
+  lockMap <- takeMVar lockMapVar
   let mChanLock = HashMap.lookup channel lockMap
   chanLock <- 
     case mChanLock of
@@ -249,7 +249,7 @@ lockChannel channel = do
         lock <- newEmptyMVar
         putMVar lockMapVar (HashMap.insert channel lock lockMap)
         return lock
-  liftIO $ putMVar chanLock =<< myThreadId
+  putMVar chanLock =<< myThreadId
   currentChanLock .= Just chanLock
 
 unlockChannel :: BotMonad s bot => bot ()
