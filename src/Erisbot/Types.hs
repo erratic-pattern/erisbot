@@ -213,7 +213,7 @@ sendMsg cmd params trail = do
   let msg = ircMsg cmd params trail
   debugMsg $ "Sending message to output queue: " 
     <> fromString (show msg)
-  liftIO . writeChan outQ $ ircMsg cmd params trail
+  liftIO . writeChan outQ $ msg
 
 recvMsg :: BotMonad s bot => bot IRCMsg
 recvMsg = liftIO . readChan =<< use inQueue
