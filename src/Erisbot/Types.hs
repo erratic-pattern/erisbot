@@ -279,11 +279,11 @@ replyToChannel writer = do
 debugMsg :: BotMonad s bot => String -> bot ()
 debugMsg msg = do
   isDebugMode <- use debugMode
-  when isDebugMode $ do
+  when isDebugMode  $ do
     lock <- use debugLock
-    let finalizer _ = void $ takeMVar lock
     threadId <- myThreadId
-    bracket_ (putMVar lock threadId) (void $ takeMVar lock) $
+    forkBot_ 
+      . bracket_ (putMVar lock threadId) (void $ takeMVar lock) $
       liftIO . System.IO.putStrLn $ show threadId <> ": " <> msg
   
 debugMsgByteString :: BotMonad s bot => ByteString -> bot ()
