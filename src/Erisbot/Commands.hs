@@ -36,7 +36,7 @@ commandDispatcher msg = do
               let (lockCmd, unlockCmd) =
                     case mCmdLock of
                       Just cmdLock -> (putMVar cmdLock threadId, 
-                                       void (tryTakeMVar cmdLock))
+                                       void (takeMVar cmdLock))
                       Nothing -> (return (), return ())
               bracket_ lockCmd unlockCmd $ do
                 cmdHandler

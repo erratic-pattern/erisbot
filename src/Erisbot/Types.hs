@@ -171,9 +171,9 @@ forkBotWithState :: BotMonad s bot =>
 forkBotWithState s' botAct = do
   botState' <- copyBotState s'
   --forkFinally (set botState' >> bot) finalizer
-  liftIO . fork . runBot botState' $ botAct >> finalizer undefined
+  liftIO . fork . runBot botState' $ botAct `finally` finalizer
   where
-    finalizer _ = do
+    finalizer =
       maybe (return ()) (void . liftIO . tryTakeMVar) =<< use currentChanLock
       
   
@@ -257,7 +257,7 @@ unlockChannel = do
   mLock <- use currentChanLock
   case mLock of
     Just lock -> do
-      void . tryTakeMVar $ lock
+      void . takeMVar $ lock
       currentChanLock .= Nothing
     Nothing ->
       return ()
