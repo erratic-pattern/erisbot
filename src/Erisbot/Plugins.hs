@@ -1,14 +1,22 @@
+{-# LANGUAGE RecordWildCards, ConstraintKinds, FlexibleContexts #-}
 module Erisbot.Plugins where
 import Erisbot.Types
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Lens
 import Control.Concurrent.Lifted
+import Control.Exception.Lifted
 import Data.HashMap.Strict as HashMap
 import System.Plugins.Load
 import System.Mem.Weak
+import System.Timeout
 import System.FilePath
 
+
+withCurrentPlugin :: BotMonad s bot => Plugin -> bot a -> bot a
+withCurrentPlugin p b = do
+  prevPlugin <- use currentPlugin
+  bracket_ (currentPlugin .= Just p) (currentPlugin .= prevPlugin) b
 
 getPlugin :: FilePath -> Bot s (LoadStatus Plugin)
 getPlugin path = do
@@ -35,24 +43,27 @@ loadPlugin pluginName filePath = do
       let pluginState = PluginState plugin mod []
       plugsVar <- use pluginMap
       modifyMVar_ plugsVar $ \plugMap -> do
-        unloadPlugin_ pluginName plugMap
-        return $ HashMap.insert pluginName pluginState plugMap
-      prevPlugin <- use currentPlugin
-      currentPlugin .= Just plugin
-      forkBot_ (onLoad plugin)
-      currentPlugin .= prevPlugin
-    
+        plugMap' <- unloadPlugin_ pluginName plugMap
+        return $ HashMap.insert pluginName pluginState plugMap'
+      withCurrentPlugin plugin $ forkBot_ (onLoad plugin)    
   return loadResult
-  
+
+
+
+
 
 unloadPlugin_ :: String -> HashMap PluginName PluginState
                  -> Bot s (HashMap PluginName PluginState)
 unloadPlugin_ pluginName pluginMap = do
   case HashMap.lookup pluginName pluginMap of
-    Just pluginState -> do
-      liftIO $ forM_ (pluginThreads pluginState) 
-                     (maybe (return ()) killThread <=< deRefWeak)
-      withLocalState () . onUnload . pluginData $ pluginState
+    Just PluginState{..} -> do
+      forkBot_ $ do
+        currentPlugin .= Just pluginData
+        s <- copyBotState ()
+        liftIO $ do
+          void . timeout 10000000 . runBot s . onUnload $ pluginData
+          forM_ pluginThreads $ 
+            maybe (return ()) killThread <=< deRefWeak
       return $ HashMap.delete pluginName pluginMap
     Nothing -> return pluginMap
       
