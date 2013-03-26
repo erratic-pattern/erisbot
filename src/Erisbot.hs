@@ -12,8 +12,9 @@ import Data.ByteString (ByteString)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.ByteString.Char8 as BS
 import Data.Attoparsec
-import Data.Monoid
-import Control.Concurrent
+import Data.Monoid ((<>))
+import Data.Char (toLower)
+import Control.Concurrent.Lifted
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Lens
@@ -53,7 +54,7 @@ socketReader sock = do
         --putStrLn . show $ msg
         --unless (BS.null leftover) . BS.hPutStrLn stderr 
         --  $ "socketReader: warning: leftovers when parsing: " <> leftover
-        liftIO (writeChan inQ msg)
+        writeChan inQ msg
   
 -- |Indefinitely read IRC messages from the bot output queue, serialize them, and write them to the given handle
 socketWriter :: Handle -> Bot s a
@@ -62,7 +63,7 @@ socketWriter sock = do
   debugMsg "starting socketWriter"
   forever $ do
     debugMsg "waiting for output"
-    line <- liftIO (readChan outQ)
+    line <- readChan outQ
     let msgStr = fromIRCMsg line
     debugMsgByteString msgStr
     liftIO (BS.hPutStr sock msgStr)
@@ -74,6 +75,29 @@ pingListener IRCMsg {msgCmd = "PING", msgParams, msgTrail}
   = sendMsg "PONG" msgParams msgTrail 
 pingListener _ = return ()
     
+rejoinListener :: InputListener s
+rejoinListener IRCMsg {msgCmd = "KICK", msgParams = [channel, nick]} = do
+  BotConf{nick = myNick} <- readMVar =<< use botConf
+  when (BS.map toLower nick == BS.map toLower (BS.pack myNick)) $ do
+    threadDelay 3000000
+    sendMsg "JOIN" [channel] ""
+
+rejoinListener _ = return ()
+
+
+-- |proof of concept
+annoyingNickChanger :: Bot () ()
+annoyingNickChanger = forever $ do
+  threadDelay 3600000000 -- wait an hour
+  changeNick "erisbot"
+  threadDelay 3600000000 -- wait an hour
+  changeNick "strifebot"
+  where
+    changeNick n = do
+      use botConf >>= (`modifyMVar_` (\c -> return c {nick = n}))
+      sendMsg "NICK" [BS.pack n] ""
+  
+
 erisbot :: BotConf -> IO ()
 erisbot conf@BotConf {..} = withSocketsDo $ do
   sock <- connectTo network (PortNumber port)
@@ -90,10 +114,13 @@ erisbot conf@BotConf {..} = withSocketsDo $ do
     forkInputListener_ commandDispatcher
     forkInputListener_ pingListener
     forkInputListener_ urlListener
+    forkInputListener_ rejoinListener
+    forkBot_ annoyingNickChanger
     forkInputListenerWithState_ HM.empty sedListener
     addCommand defaultCommand { name =  "say"
                               , handler = sayCommand
                               }
+    threadDelay 2000000
     sendMsg "NICK" [BS.pack nick] ""
     sendMsg "USER" [BS.pack user, "0", "0"] (BS.pack realname)
     waitFor001 $ do
@@ -103,4 +130,4 @@ erisbot conf@BotConf {..} = withSocketsDo $ do
     debugMsg "main sleeping"
     sleepForever
   
-  where sleepForever = liftIO (threadDelay maxBound) >> sleepForever
+  where sleepForever = threadDelay maxBound >> sleepForever

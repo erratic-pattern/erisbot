@@ -283,9 +283,8 @@ debugMsg msg = do
     lock <- use debugLock
     let finalizer _ = void $ takeMVar lock
     threadId <- myThreadId
-    putMVar lock threadId
-    liftIO . System.IO.hPutStrLn stderr $ show threadId <> ": " <> msg
-    finalizer undefined
+    bracket_ (putMVar lock threadId) (void $ takeMVar lock) $
+      liftIO . System.IO.putStrLn $ show threadId <> ": " <> msg
   
 debugMsgByteString :: BotMonad s bot => ByteString -> bot ()
 debugMsgByteString = debugMsg . BS.unpack
