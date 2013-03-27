@@ -88,9 +88,9 @@ rejoinListener _ = return ()
 -- |proof of concept
 annoyingNickChanger :: Bot () ()
 annoyingNickChanger = forever $ do
-  threadDelay 3600000000 -- wait an hour
+  threadDelay 2760000000 -- wait 46 minutes
   changeNick "erisbot"
-  threadDelay 3600000000 -- wait an hour
+  threadDelay 2760000000 -- wait 46 minutes
   changeNick "strifebot"
   where
     changeNick n = do
