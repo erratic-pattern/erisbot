@@ -266,7 +266,7 @@ withChannel :: BotMonad s bot =>
 withChannel channel cWriter = do
   result <- bracket (lockChannel channel) (const unlockChannel) $
             (const $ runReaderT cWriter channel)
-  currentChanLock .= Nothing -- needed because lifted bracket_ discards 
+  currentChanLock .= Nothing -- needed because lifted bracket discards 
                              -- state changes in the finalizer
   return result
 
