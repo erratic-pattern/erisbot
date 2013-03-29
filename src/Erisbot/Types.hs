@@ -24,6 +24,7 @@ import Control.Concurrent.Lifted
 import System.Mem.Weak
 import System.Plugins.Load (Module)
 import System.IO
+import Prelude hiding (catch)
 
 
 type PluginName = String
@@ -170,8 +171,11 @@ forkBotWithState :: BotMonad s bot =>
                     s' -> Bot s' () -> bot ThreadId
 forkBotWithState s' botAct = do
   botState' <- copyBotState s'
-  --forkFinally (set botState' >> bot) finalizer
-  liftIO . fork . runBot botState' $ botAct
+  liftIO . fork . runBot botState' $ botAct `catch` exHandler
+  where
+    exHandler (e :: SomeException) = do
+      debugMsg (show e)
+      throw e
       
   
 forkBotWithState_ :: BotMonad s bot => s' -> Bot s' () -> bot ()
@@ -179,9 +183,8 @@ forkBotWithState_ s' = void . forkBotWithState s'
 
 runInputListener :: InputListener s -> Bot s a
 runInputListener listener = 
-  forever . handle exHandler $ listener =<< recvMsg
+  forever $ listener =<< recvMsg
   where
-    exHandler (e :: SomeException) = debugMsg (show e)
 
 forkInputListener :: InputListener () -> Bot () ThreadId
 forkInputListener = forkInputListenerWithState ()
@@ -211,8 +214,7 @@ sendMsg :: BotMonad s bot =>
 sendMsg cmd params trail = do
   outQ <- use outQueue
   let msg = ircMsg cmd params trail
-  debugMsg $ "Sending message to output queue: " 
-    <> fromString (show msg)
+  debugMsg $ "Sending message to output queue: " <> fromString (show msg)
   liftIO . writeChan outQ $ msg
 
 recvMsg :: BotMonad s bot => bot IRCMsg
@@ -241,7 +243,7 @@ lockChannel channel = do
     case mChanLock of
       Just lock -> do
         putMVar lockMapVar lockMap
-        return lock   
+        return lock
       Nothing -> do  
         lock <- newEmptyMVar
         putMVar lockMapVar (HashMap.insert channel lock lockMap)
@@ -262,8 +264,8 @@ unlockChannel = do
 withChannel :: BotMonad s bot => 
                ByteString -> ChannelWriterT bot a -> bot a
 withChannel channel cWriter = do
-  result <- bracket_ (lockChannel channel) (unlockChannel) $
-            runReaderT cWriter channel
+  result <- bracket (lockChannel channel) (const unlockChannel) $
+            (const $ runReaderT cWriter channel)
   currentChanLock .= Nothing -- needed because lifted bracket_ discards 
                              -- state changes in the finalizer
   return result
